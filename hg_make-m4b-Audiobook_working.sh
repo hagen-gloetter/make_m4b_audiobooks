@@ -1,3 +1,4 @@
+#! /bin/bash
 ls *.mp3 |     sed -e "s/\(.*\)/file '\1'/" >  filenames.txt
 ffmpeg -f concat -safe 0 -i filenames.txt -c copy output.mp3	
 ffmpeg -i output.mp3	 -c:a aac "output-converted.m4a"
