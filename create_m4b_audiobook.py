@@ -3,19 +3,6 @@
 create_m4b_audiobook.py
 Konvertiert MP3-Dateien in ein M4B-Hörbuch mit Kapitelmarken.
 
-Verwendung:
-  python3 create_m4b_audiobook.py --input /music_in
-  python3 create_m4b_audiobook.py --input /music_in --output-title "Mein Hörbuch"
-
-Installation der Abhängigkeiten (Ubuntu 22.04):
-  sudo apt update && sudo apt install -y ffmpeg atomicparsley python3-pip
-  pip install mutagen
-"""
-#!/usr/bin/env python3
-"""
-create_m4b_audiobook.py
-Konvertiert MP3-Dateien in ein M4B-Hörbuch mit Kapitelmarken.
-
 Installation:
   sudo apt update && sudo apt install -y ffmpeg atomicparsley python3-pip
   pip install mutagen
