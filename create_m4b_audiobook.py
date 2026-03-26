@@ -11,6 +11,26 @@ Installation der Abhängigkeiten (Ubuntu 22.04):
   sudo apt update && sudo apt install -y ffmpeg atomicparsley python3-pip
   pip install mutagen
 """
+#!/usr/bin/env python3
+"""
+create_m4b_audiobook.py
+Konvertiert MP3-Dateien in ein M4B-Hörbuch mit Kapitelmarken.
+
+Installation:
+  sudo apt update && sudo apt install -y ffmpeg atomicparsley python3-pip
+  pip install mutagen
+
+Verwendung:
+  python3 create_m4b_audiobook.py --input /music_in
+  python3 create_m4b_audiobook.py --input /music_in --output-title "Mein Hörbuch"
+
+Cover-Bild:
+  Lege einfach eine .jpg oder .jpeg Datei in den Eingabeordner.
+  Bevorzugt werden cover.jpg und folder.jpg, sonst die erste gefundene .jpg.
+
+Kapitel:
+  Jede MP3-Datei bekommt ein Kapitel mit dem Namen Kapitel001, Kapitel002, ...
+"""
 
 import argparse
 import json
@@ -46,14 +66,12 @@ log = logging.getLogger("m4b-creator")
 # Hilfsfunktionen
 # ─────────────────────────────────────────────
 def check_dependency(cmd: str) -> None:
-    """Prüft, ob ein externes Tool vorhanden ist."""
     if not shutil.which(cmd):
         log.error(f"Abhängigkeit fehlt: '{cmd}' wurde nicht gefunden. Bitte installieren.")
         sys.exit(1)
 
 
 def get_audio_info(filepath: str) -> dict:
-    """Gibt Dauer (s), Kanalzahl und Bitrate per ffprobe zurück."""
     cmd = [
         "ffprobe", "-v", "quiet",
         "-print_format", "json",
@@ -68,14 +86,20 @@ def get_audio_info(filepath: str) -> dict:
     )
     duration = float(data.get("format", {}).get("duration", 0))
     channels = int(audio_stream.get("channels", 2))
-    bit_rate = int(data.get("format", {}).get("bit_rate", 0)) // 1000  # kbps
+    bit_rate = int(data.get("format", {}).get("bit_rate", 0)) // 1000
 
     return {"duration": duration, "channels": channels, "bit_rate": bit_rate}
 
 
 def get_id3_tags(filepath: str) -> dict:
-    """Liest ID3-Tags und optionales Cover-Bild aus einer MP3-Datei."""
-    tags = {"title": None, "artist": None, "album": None, "year": None, "genre": None, "cover": None}
+    tags = {
+        "title": None,
+        "artist": None,
+        "album": None,
+        "year": None,
+        "genre": None,
+        "cover": None,
+    }
     try:
         audio = ID3(filepath)
         tags["title"]  = str(audio.get("TIT2", "")).strip() or None
@@ -92,8 +116,34 @@ def get_id3_tags(filepath: str) -> dict:
     return tags
 
 
+def find_cover_image(input_dir: Path):
+    """
+    Sucht ein Cover-Bild direkt im Eingabeordner.
+    Priorität: cover.jpg > folder.jpg > erste gefundene .jpg/.jpeg
+    Gibt einen Path zurück oder None.
+    """
+    preferred = ["cover.jpg", "folder.jpg", "cover.jpeg", "folder.jpeg"]
+    for name in preferred:
+        candidate = input_dir / name
+        if candidate.exists() and candidate.is_file():
+            log.info(f"Cover-Bild gefunden (bevorzugt): {candidate.name}")
+            return candidate
+
+    images = sorted(
+        [
+            p for p in input_dir.iterdir()
+            if p.is_file() and p.suffix.lower() in [".jpg", ".jpeg"]
+        ],
+        key=lambda p: p.name.lower(),
+    )
+    if images:
+        log.info(f"Cover-Bild gefunden (erstes JPG im Ordner): {images[0].name}")
+        return images[0]
+
+    return None
+
+
 def seconds_to_ffmpeg_ts(seconds: float) -> str:
-    """Konvertiert Sekunden in HH:MM:SS.mmm."""
     h = int(seconds // 3600)
     m = int((seconds % 3600) // 60)
     s = seconds % 60
@@ -101,7 +151,6 @@ def seconds_to_ffmpeg_ts(seconds: float) -> str:
 
 
 def choose_bitrate(info: dict) -> str:
-    """Wählt 192k wenn Quelle stereo + ausreichend Bitrate, sonst 128k."""
     if info["channels"] >= 2 and info["bit_rate"] >= 160:
         return "192k"
     return "128k"
@@ -111,15 +160,14 @@ def choose_bitrate(info: dict) -> str:
 # Kernlogik
 # ─────────────────────────────────────────────
 def encode_mp3_to_m4a(mp3_path: str, m4a_path: str, bitrate: str, use_fdk: bool) -> None:
-    """Kodiert eine MP3-Datei als AAC-LC in eine temporäre .m4a-Datei."""
     encoder = "libfdk_aac" if use_fdk else "aac"
     cmd = [
         "ffmpeg", "-y",
         "-i", mp3_path,
-        "-vn",                   # kein Video/Cover in Zwischendatei
+        "-vn",
         "-c:a", encoder,
         "-b:a", bitrate,
-        "-ac", "2",              # Stereo erzwingen
+        "-ac", "2",
         "-ar", "44100",
         m4a_path,
     ]
@@ -127,7 +175,6 @@ def encode_mp3_to_m4a(mp3_path: str, m4a_path: str, bitrate: str, use_fdk: bool)
 
 
 def build_ffmetadata(chapters: list, global_meta: dict) -> str:
-    """Erzeugt den Inhalt einer FFMETADATA1-Datei mit Kapitelmarken."""
     lines = [";FFMETADATA1"]
     if global_meta.get("title"):
         lines.append(f"title={global_meta['title']}")
@@ -162,15 +209,12 @@ def create_m4b(args) -> None:
     # ── Abhängigkeiten prüfen ──────────────────
     for dep in ["ffmpeg", "ffprobe"]:
         check_dependency(dep)
-    # AtomicParsley optional, nur warnen
+
     has_atomicparsley = bool(shutil.which("AtomicParsley"))
     if not has_atomicparsley:
         log.warning("AtomicParsley nicht gefunden – Cover wird direkt über ffmpeg eingebettet.")
 
-    # FDK-AAC verfügbar?
-    fdk_check = subprocess.run(
-        ["ffmpeg", "-encoders"], capture_output=True, text=True
-    )
+    fdk_check = subprocess.run(["ffmpeg", "-encoders"], capture_output=True, text=True)
     use_fdk = "libfdk_aac" in fdk_check.stdout
     log.info(f"AAC-Encoder: {'libfdk_aac (FDK)' if use_fdk else 'aac (nativ)'}")
 
@@ -181,8 +225,14 @@ def create_m4b(args) -> None:
         sys.exit(1)
     log.info(f"{len(mp3_files)} MP3-Datei(en) gefunden in: {input_dir}")
 
+    # ── Cover-Bild aus Eingabeordner suchen ────
+    cover_file = find_cover_image(input_dir)
+    if not cover_file:
+        log.warning("Kein JPG/JPEG im Eingabeordner gefunden – wird ohne Cover erstellt.")
+
     # ── Metadaten aus erster Datei / Argument ──
     first_tags = get_id3_tags(str(mp3_files[0]))
+
     if args.output_title:
         book_title = args.output_title
     elif first_tags.get("album"):
@@ -191,6 +241,7 @@ def create_m4b(args) -> None:
         book_title = first_tags["title"]
     else:
         book_title = input_dir.name
+
     log.info(f"Hörbuch-Titel: '{book_title}'")
 
     global_meta = {
@@ -202,17 +253,15 @@ def create_m4b(args) -> None:
     }
 
     output_base.mkdir(parents=True, exist_ok=True)
-    # Ungültige Zeichen im Dateinamen bereinigen
-    safe_title = "".join(c for c in book_title if c not in r'\/:*?"<>|').strip()
+    safe_title  = "".join(c for c in book_title if c not in r'\/:*?"<>|').strip()
     output_file = output_base / f"{safe_title}.m4b"
     log.info(f"Ausgabedatei: {output_file}")
 
     with tempfile.TemporaryDirectory(prefix="m4b_") as tmpdir:
-        tmpdir = Path(tmpdir)
+        tmpdir    = Path(tmpdir)
         m4a_files = []
-        chapters   = []
-        cursor     = 0.0
-        cover_data = None
+        chapters  = []
+        cursor    = 0.0
 
         # ── Phase 1: MP3 → m4a konvertieren ───
         log.info("=" * 55)
@@ -220,15 +269,12 @@ def create_m4b(args) -> None:
         log.info("=" * 55)
 
         for idx, mp3 in enumerate(mp3_files, start=1):
-            tags = get_id3_tags(str(mp3))
-            info = get_audio_info(str(mp3))
+            info    = get_audio_info(str(mp3))
             bitrate = choose_bitrate(info)
 
-            # Erstes verfügbares Cover merken
-            if cover_data is None and tags.get("cover"):
-                cover_data = tags["cover"]
+            # Kapitelnamen: immer KapitelNNN
+            chapter_name = f"Kapitel{idx:03d}"
 
-            chapter_name = tags.get("title") or mp3.stem
             m4a_out = tmpdir / f"{idx:04d}.m4a"
 
             log.info(
@@ -240,12 +286,11 @@ def create_m4b(args) -> None:
             try:
                 encode_mp3_to_m4a(str(mp3), str(m4a_out), bitrate, use_fdk)
             except subprocess.CalledProcessError as e:
-                log.error(f"Fehler beim Konvertieren von '{mp3.name}': {e.stderr.decode()}")
+                log.error(f"Fehler beim Konvertieren von '{mp3.name}':\n{e.stderr.decode()}")
                 sys.exit(1)
 
-            # Echte Dauer der Ausgabedatei messen (verhindert Drift)
             actual_info = get_audio_info(str(m4a_out))
-            duration = actual_info["duration"]
+            duration    = actual_info["duration"]
 
             chapters.append({
                 "name":  chapter_name,
@@ -269,29 +314,22 @@ def create_m4b(args) -> None:
         meta_file = tmpdir / "metadata.txt"
         meta_file.write_text(build_ffmetadata(chapters, global_meta), encoding="utf-8")
 
-        # ── Phase 4: Cover-Datei (optional) ───
-        cover_file = None
-        if cover_data:
-            cover_file = tmpdir / "cover.jpg"
-            cover_file.write_bytes(cover_data)
-            log.info("Cover-Bild gefunden und wird eingebettet.")
-        else:
-            log.warning("Kein Cover-Bild in den MP3-Tags gefunden – wird ohne Cover erstellt.")
-
-        # ── Phase 5: Finaler ffmpeg-Durchlauf ─
+        # ── Phase 4: Finaler ffmpeg-Durchlauf ─
         tmp_m4b = tmpdir / "output.m4b"
         cmd = [
             "ffmpeg", "-y",
             "-f", "concat", "-safe", "0", "-i", str(concat_list),
             "-i", str(meta_file),
         ]
-        map_indices = ["-map", "0:a", "-map_metadata", "1", "-map_chapters", "1"]
+
+        map_args = ["-map", "0:a", "-map_metadata", "1", "-map_chapters", "1"]
 
         if cover_file:
             cmd += ["-i", str(cover_file)]
-            map_indices += ["-map", "2:v", "-disposition:v:0", "attached_pic"]
+            map_args += ["-map", "2:v", "-disposition:v:0", "attached_pic"]
+            log.info(f"Cover wird eingebettet: {cover_file.name}")
 
-        cmd += map_indices + [
+        cmd += map_args + [
             "-c:a", "copy",
             "-c:v", "copy",
             "-movflags", "+faststart",
@@ -305,14 +343,14 @@ def create_m4b(args) -> None:
             log.error(f"ffmpeg-Fehler beim Zusammenführen:\n{e.stderr.decode()}")
             sys.exit(1)
 
-        # ── Phase 6: Datei in Zielordner kopieren ─
+        # ── Phase 5: Datei in Zielordner kopieren ─
         shutil.copy2(str(tmp_m4b), str(output_file))
 
     log.info("=" * 55)
-    log.info(f"✓ Fertig! Hörbuch gespeichert unter:")
+    log.info("✓ Fertig! Hörbuch gespeichert unter:")
     log.info(f"  {output_file}")
-    log.info(f"  Gesamtdauer: {seconds_to_ffmpeg_ts(cursor)}")
-    log.info(f"  Kapitel:     {len(chapters)}")
+    log.info(f"  Gesamtdauer : {seconds_to_ffmpeg_ts(cursor)}")
+    log.info(f"  Kapitel     : {len(chapters)}")
     log.info("=" * 55)
 
 
@@ -331,8 +369,7 @@ def main():
     parser.add_argument(
         "--output-title", "-t",
         default=None,
-        help="Titel des Hörbuchs (überschreibt ID3-Tag). "
-             "Wird auch als Dateiname verwendet.",
+        help="Titel des Hörbuchs (überschreibt ID3-Tag). Wird auch als Dateiname verwendet.",
     )
     args = parser.parse_args()
     create_m4b(args)
@@ -340,3 +377,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
