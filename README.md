@@ -44,14 +44,78 @@ A small Python CLI tool that takes all MP3 files from an input folder, sorts the
 
 ------
 
-## Installation (Ubuntu 22.04)
+## Installation
+
+### System packages
+
+#### Ubuntu/Debian (Linux)
 
 ```bash
-sudo apt update && sudo apt install -y ffmpeg atomicparsley python3-pip
+sudo apt update && sudo apt install -y ffmpeg atomicparsley python3-full
+```
+
+#### macOS
+
+```bash
+brew install ffmpeg atomicparsley python3
+```
+
+#### Windows
+
+Install FFmpeg and AtomicParsley:
+- **FFmpeg**: Download from [ffmpeg.org](https://ffmpeg.org/download.html) or use a package manager like Chocolatey:
+  ```powershell
+  choco install ffmpeg atomicparsley
+  ```
+- **Python3**: Download from [python.org](https://www.python.org/downloads/) or use Chocolatey:
+  ```powershell
+  choco install python
+  ```
+
+### Python Virtual Environment Setup
+
+To avoid the `externally-managed-environment` error, create and activate a Python virtual environment:
+
+#### Linux / macOS
+
+```bash
+# Create virtual environment
+python3 -m venv venv
+
+# Activate virtual environment
+source venv/bin/activate
+
+# Install Python packages
 pip install mutagen
 ```
 
-Optionally, you can check whether `ffmpeg` was built with `libfdk_aac`. If not, the script automatically falls back to the native `aac` encoder.
+#### Windows
+
+```powershell
+# Create virtual environment
+python -m venv venv
+
+# Activate virtual environment
+venv\Scripts\activate
+
+# Install Python packages
+pip install mutagen
+```
+
+After activation, your shell prompt should show `(venv)` at the beginning.
+
+**Note**: Each time you use the script, remember to activate the virtual environment first:
+- **Linux/macOS**: `source venv/bin/activate`
+- **Windows**: `venv\Scripts\activate`
+
+To deactivate the virtual environment later, simply type:
+```bash
+deactivate
+```
+
+---
+
+**Optional**: You can check whether `ffmpeg` was built with `libfdk_aac`. If not, the script automatically falls back to the native `aac` encoder.
 
 ------
 
